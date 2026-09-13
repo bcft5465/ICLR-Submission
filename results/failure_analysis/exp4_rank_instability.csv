@@ -1,0 +1,4 @@
+component,rho_vs_hallu_score,rho_vs_hs_equal,rho_vs_hs_calib_heavy,rho_vs_hs_type_heavy,rho_range_across_schemes
+one_minus_ece,-0.1099,-0.3626,0.1264,-0.3736,0.5
+type_acc_macro,0.6722,0.8981,0.5455,0.8926,0.3526
+discrimination,0.8666,0.718,0.7235,0.751,0.1486

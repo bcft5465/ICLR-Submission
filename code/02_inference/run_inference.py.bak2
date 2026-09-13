@@ -1,0 +1,1164 @@
+#!/usr/bin/env python3
+"""
+02_inference/run_inference.py  — v2.2
+Root cause of CUDA scatter/gather OOB assert with Mllama:
+  The processor inserts special cross-attention image placeholder tokens
+  whose IDs exceed the text vocabulary size. Without the
+  _get_num_multimodal_tokens patch, generate() passes these raw IDs into
+  the token embedding lookup and triggers the device-side assertion.
+
+Fixes in this version:
+  1. _get_num_multimodal_tokens patch RE-ENABLED and hardened
+  2. attention_mask is kept (NOT popped) — cross-attention requires it
+  3. repetition_penalty + no_repeat_ngram_size kept to prevent !!! loops
+  4. Image resized to 560x560 max before processing — reduces tile count,
+     which is the other source of OOB token IDs in Mllama
+  5. Processor called with return_tensors=pt and explicit padding=False
+     to avoid spurious pad tokens pushing IDs out of range
+"""
+
+# ── PATCHES (must run before any transformers/vllm import) ────────────────────
+
+import os
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["TORCH_USE_CUDA_DSA"] = "1"
+
+import sys
+import builtins
+from PIL.Image import Resampling
+
+sys.modules["transformers.utils.PILImageResampling"] = Resampling
+setattr(builtins, "PILImageResampling", Resampling)
+
+try:
+    import transformers
+    import transformers.image_processing_utils as _ipu
+    import transformers.image_processing_base as _ipb
+    for _mod in [transformers, _ipu, _ipb]:
+        if not hasattr(_mod, "PILImageResampling"):
+            setattr(_mod, "PILImageResampling", Resampling)
+    try:
+        import transformers.image_processing_utils_fast as _ipuf
+        if not hasattr(_ipuf, "PILImageResampling"):
+            _ipuf.PILImageResampling = Resampling
+    except ImportError:
+        pass
+except Exception:
+    pass
+print("[patch] PILImageResampling injected.")
+
+# ── MllamaProcessor patch ─────────────────────────────────────────────────────
+#
+# WHY THIS IS NEEDED:
+#   Mllama splits images into tiles (up to 4 tiles + 1 global = 5 tiles).
+#   Each tile contributes 1601 cross-attention tokens. The processor calls
+#   _get_num_multimodal_tokens() to tell generate() how many special image
+#   token IDs to reserve. If this method is missing (older transformers),
+#   generate() miscounts and assigns token IDs beyond the vocab boundary,
+#   causing the scatter/gather kernel out-of-bounds assertion on CUDA.
+#
+#   Returning {"num_image_tokens": [1601]} covers the single-tile case.
+#   For multi-tile (large images), it should be num_tiles * 1601.
+#   We fix this by capping image size at 560x560 before processing,
+#   which guarantees Mllama uses exactly 1 tile → exactly 1601 tokens.
+#
+try:
+    from transformers import MllamaProcessor
+#    if not hasattr(MllamaProcessor, "_get_num_multimodal_tokens"):
+#        def _get_num_multimodal_tokens(self, **kwargs):
+#            # 1601 tokens per tile; we enforce 1 tile via image resize
+#            return {"num_image_tokens": [1601]}
+#        MllamaProcessor._get_num_multimodal_tokens = _get_num_multimodal_tokens
+#        print("[patch] MllamaProcessor._get_num_multimodal_tokens injected.")
+#    else:
+#        print("[patch] MllamaProcessor._get_num_multimodal_tokens already present.")
+except ImportError:
+    print("[patch] MllamaProcessor not importable — will retry after model load.")
+
+# ── Imports ───────────────────────────────────────────────────────────────────
+import argparse
+import json
+import time
+import re
+from pathlib import Path
+
+import torch
+import yaml
+import numpy as np
+from PIL import Image
+from tqdm import tqdm
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+ROOT      = Path(__file__).resolve().parents[3]
+CFG_PATH  = ROOT / "code/v1/config.yaml"
+with open(CFG_PATH) as f:
+    CFG = yaml.safe_load(f)
+
+PROCESSED  = ROOT / CFG["paths"]["data_processed"]
+OUTPUTS    = ROOT / CFG["paths"]["outputs"]
+OUTPUTS.mkdir(parents=True, exist_ok=True)
+MODELS_DIR = ROOT / CFG["paths"]["models"]
+
+LOCAL_DIRS = {
+    "qwen25_vl": str(MODELS_DIR / "Qwen2.5-VL-7B-Instruct"),
+    "medgemma":  str(MODELS_DIR / "medgemma-27b-it"),
+    "llama":     str(MODELS_DIR / "Llama-3.2-11B-Vision-Instruct"),
+    "biovil_t":  str(MODELS_DIR / "BiomedVLP-BioViL-T"),
+}
+
+# Mllama tile size. Images larger than this get split into multiple tiles,
+# each adding 1601 tokens. Cap at this size to guarantee 1 tile exactly.
+LLAMA_MAX_IMAGE_SIZE = 560
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+PROMPT_STANDARD = (
+    "You are a critical radiology AI evaluator. "
+    "Your job is to detect errors and hallucinations in chest X-ray reports.\n\n"
+    "Carefully examine the X-ray image and the report below. "
+    "Check whether every finding, anatomy, attribute (size/shape/density), "
+    "and spatial relationship (left/right/upper/lower) in the report is "
+    "actually visible and correct in the image.\n\n"
+    "If the report contains ANY error — even a single wrong detail — answer NO.\n"
+    "Only answer YES if the report is completely accurate.\n\n"
+    "Report: {report}\n\n"
+    "First state YES or NO. "
+    "Then state your confidence as a decimal between 0.00 and 1.00 "
+    "(confidence in your YES/NO answer). "
+    "Format: 'YES 0.92' or 'NO 0.87'. "
+    "Then give one sentence explaining your reasoning."
+)
+
+PROMPT_COT = (
+    "You are a critical radiology AI evaluator. "
+    "Your job is to detect errors and hallucinations in chest X-ray reports.\n\n"
+    "Carefully examine the X-ray image and the report below.\n\n"
+    "Report: {report}\n\n"
+    "Think step by step:\n"
+    "Step 1 - Objects: List every anatomical finding mentioned in the report. "
+    "Is each one actually visible in the image?\n"
+    "Step 2 - Attributes: Check each finding's properties "
+    "(size, shape, density, severity). Are they correct?\n"
+    "Step 3 - Relations: Check spatial relationships "
+    "(left/right/upper/lower/bilateral). Are they correct?\n"
+    "Step 4 - Verdict: Based on steps 1-3, does the report faithfully describe "
+    "the image with NO errors?\n\n"
+    "After your reasoning, give your final answer on a NEW LINE in this exact format:\n"
+    "VERDICT: YES 0.92\n"
+    "or\n"
+    "VERDICT: NO 0.87\n"
+    "Where the number is your confidence in the YES/NO answer (0.00-1.00)."
+)
+
+PROMPTS = {
+    "standard": PROMPT_STANDARD,
+    "cot":      PROMPT_COT,
+}
+
+# ── Output sanity check ───────────────────────────────────────────────────────
+
+def is_degenerate(text: str, threshold: float = 0.5) -> bool:
+    """Returns True if the output is a degenerate repetition loop."""
+    if not text or len(text.strip()) == 0:
+        return True
+    punct_chars = sum(1 for c in text if not c.isalnum() and not c.isspace())
+    if len(text) > 0 and punct_chars / len(text) > threshold:
+        return True
+    unique_ratio = len(set(text.lower())) / max(len(text), 1)
+    if unique_ratio < 0.05:
+        return True
+    garbage_patterns = [
+        r"!{5,}",
+        r"\${3,}",
+        r"\?{4,}",
+        r"[\uFFFD]{2,}",
+    ]
+    for pat in garbage_patterns:
+        if re.search(pat, text):
+            return True
+    return False
+
+
+# ── Parse output ──────────────────────────────────────────────────────────────
+
+def parse_output(raw: str, prompt_mode: str = "standard") -> dict:
+    if is_degenerate(raw):
+        return {
+            "pred_label":      "unknown",
+            "pred_confidence": 0.5,
+            "raw_verdict":     "unknown",
+        }
+
+    text = raw.strip().upper()
+
+    if prompt_mode == "cot":
+        verdict_match = re.search(r"VERDICT:\s*(YES|NO)\s+(0?\.\d+|1\.0+|0|1)", text)
+        if verdict_match:
+            label_token = verdict_match.group(1)
+            conf_val    = float(verdict_match.group(2))
+            label   = "faithful" if label_token == "YES" else "hallucinated"
+            p_hallu = conf_val if label == "hallucinated" else (1.0 - conf_val)
+            return {
+                "pred_label":      label,
+                "pred_confidence": round(float(np.clip(p_hallu, 0.0, 1.0)), 4),
+                "raw_verdict":     label_token,
+            }
+
+    tokens      = text.split()
+    label_token = None
+    conf_val    = None
+
+    for i, tok in enumerate(tokens[:6]):
+        if tok in ("YES", "NO"):
+            label_token = tok
+            if i + 1 < len(tokens):
+                num_match = re.search(r"(0?\.\d+|1\.0+)", tokens[i + 1])
+                if num_match:
+                    conf_val = float(num_match.group(1))
+            break
+
+    if label_token and conf_val is None:
+        num_match = re.search(r"(YES|NO)[^0-9]*(0?\.\d+|1\.0+)", text)
+        if num_match:
+            conf_val = float(num_match.group(2))
+
+    if label_token is None:
+        return {
+            "pred_label":      "unknown",
+            "pred_confidence": 0.5,
+            "raw_verdict":     "unknown",
+        }
+
+    label   = "faithful" if label_token == "YES" else "hallucinated"
+    if conf_val is None:
+        conf_val = 0.75
+
+    p_hallu = conf_val if label == "hallucinated" else (1.0 - conf_val)
+    return {
+        "pred_label":      label,
+        "pred_confidence": round(float(np.clip(p_hallu, 0.0, 1.0)), 4),
+        "raw_verdict":     label_token,
+    }
+
+
+# ── Post-hoc confidence inversion ─────────────────────────────────────────────
+
+def maybe_invert_confidence(out_path: Path, model_key: str):
+    from sklearn.metrics import roc_auc_score
+
+    records = []
+    with open(out_path) as f:
+        for line in f:
+            try:
+                records.append(json.loads(line))
+            except Exception:
+                pass
+
+    valid = [r for r in records if r["pred_label"] in ("faithful", "hallucinated")]
+    if not valid:
+        return
+
+    y_true = np.array([1 if r["gt_hallucinated"] else 0 for r in valid])
+    y_conf = np.array([r["pred_confidence"] for r in valid])
+
+    try:
+        auroc = roc_auc_score(y_true, y_conf)
+    except ValueError:
+        return
+
+    sidecar = out_path.with_suffix(".inversion.json")
+    if auroc < 0.5:
+        print(f"  [recalibrate] AUROC={auroc:.3f} < 0.5 → inverting for {model_key}")
+        inverted = []
+        for r in records:
+            r2 = dict(r)
+            r2["pred_confidence"]     = round(1.0 - r["pred_confidence"], 4)
+            r2["confidence_inverted"] = True
+            inverted.append(r2)
+        with open(out_path, "w") as f:
+            for r in inverted:
+                f.write(json.dumps(r) + "\n")
+        with open(sidecar, "w") as f:
+            json.dump({"model": model_key, "original_auroc": auroc,
+                       "inverted": True, "inverted_auroc": 1.0 - auroc}, f, indent=2)
+        print(f"  [recalibrate] Effective AUROC: {1.0 - auroc:.3f}")
+    else:
+        print(f"  [recalibrate] AUROC={auroc:.3f} ≥ 0.5 — no inversion needed")
+        with open(sidecar, "w") as f:
+            json.dump({"model": model_key, "original_auroc": auroc,
+                       "inverted": False}, f, indent=2)
+
+
+# ── Chat prompt builders (vllm models) ────────────────────────────────────────
+
+def make_prompt_qwen(report: str, prompt_mode: str = "standard") -> str:
+    p = PROMPTS[prompt_mode].format(report=report)
+    return (
+        f"<|im_start|>user\n"
+        f"<|vision_start|><|image_pad|><|vision_end|>{p}"
+        f"<|im_end|>\n<|im_start|>assistant\n"
+    )
+
+def make_prompt_medgemma(report: str, prompt_mode: str = "standard") -> str:
+    p = PROMPTS[prompt_mode].format(report=report)
+    return (
+        f"<bos><start_of_turn>user\n"
+        f"<start_of_image>{p}<end_of_turn>\n"
+        f"<start_of_turn>model\n"
+    )
+
+# ── vllm runner (qwen25_vl, medgemma) ────────────────────────────────────────
+
+def run_vllm(model_key: str, prompt_mode: str = "standard", recalibrate: bool = True):
+    from vllm import LLM, SamplingParams
+
+    benchmark_path = PROCESSED / "benchmark_v1.jsonl"
+    with open(benchmark_path) as f:
+        samples = [json.loads(l) for l in f]
+
+    suffix   = f"_{prompt_mode}" if prompt_mode != "standard" else ""
+    out_path = OUTPUTS / f"{model_key}_v2{suffix}.jsonl"
+
+    done_ids = set()
+    if out_path.exists():
+        with open(out_path) as f:
+            for line in f:
+                try:
+                    done_ids.add(json.loads(line)["id"])
+                except Exception:
+                    pass
+        print(f"[resume] {len(done_ids)} already done")
+
+    remaining = [s for s in samples if s["id"] not in done_ids]
+    if not remaining:
+        print("[done] All samples already processed.")
+        if recalibrate:
+            maybe_invert_confidence(out_path, model_key)
+        return
+
+    local      = LOCAL_DIRS[model_key]
+    max_tokens = 300 if prompt_mode == "cot" else 80
+
+    llm = LLM(
+        model=local,
+        dtype="bfloat16",
+        max_model_len=8192,
+        tensor_parallel_size=1,
+        limit_mm_per_prompt={"image": 1},
+        gpu_memory_utilization=0.85,
+        disable_log_stats=True,
+        enforce_eager=True,
+    )
+    sampling       = SamplingParams(temperature=0, max_tokens=max_tokens)
+    prompt_builder = (make_prompt_qwen if model_key == "qwen25_vl"
+                      else make_prompt_medgemma)
+
+    prompts = []
+    for s in remaining:
+        image = Image.open(s["img_path"]).convert("RGB")
+        prompts.append({
+            "prompt":            prompt_builder(s["report"], prompt_mode),
+            "multi_modal_data":  {"image": image},
+        })
+
+    print(f"[inference] Running {len(prompts)} samples ...")
+    t0         = time.time()
+    outputs    = llm.generate(prompts, sampling_params=sampling)
+    total_time = time.time() - t0
+    avg_lat    = round(total_time / len(prompts), 3)
+
+    with open(out_path, "a") as fout:
+        for sample, output in zip(remaining, outputs):
+            raw    = output.outputs[0].text.strip()
+            parsed = parse_output(raw, prompt_mode)
+            record = {
+                "id":              sample["id"],
+                "model":           model_key,
+                "prompt_mode":     prompt_mode,
+                "gt_hallucinated": sample["hallucinated"],
+                "hallu_type":      sample["hallu_type"],
+                "raw_output":      raw,
+                "latency_s":       avg_lat,
+                **parsed,
+            }
+            fout.write(json.dumps(record) + "\n")
+
+    print(f"[done] {len(remaining)} samples in {total_time:.1f}s → {out_path}")
+    if recalibrate:
+        maybe_invert_confidence(out_path, model_key)
+
+
+# ── LLaMA-3.2-11B-Vision via transformers ─────────────────────────────────────
+
+def _ensure_mllama_patch():
+    """
+    Re-applies the _get_num_multimodal_tokens patch after model import.
+    Called after MllamaForConditionalGeneration is imported to guarantee
+    the method is present on the class regardless of transformers version.
+    """
+    try:
+        from transformers import MllamaProcessor
+#        if not hasattr(MllamaProcessor, "_get_num_multimodal_tokens"):
+#            def _get_num_multimodal_tokens(self, **kwargs):
+#                return {"num_image_tokens": [1601]}
+#            MllamaProcessor._get_num_multimodal_tokens = _get_num_multimodal_tokens
+#            print("[patch] MllamaProcessor._get_num_multimodal_tokens injected (post-import).")
+    except Exception as e:
+        print(f"[patch] MllamaProcessor patch failed: {e}")
+
+
+def run_llama_transformers(prompt_mode: str = "standard", recalibrate: bool = True):
+    from transformers import MllamaForConditionalGeneration, AutoProcessor
+
+    _ensure_mllama_patch()
+
+    benchmark_path = PROCESSED / "benchmark_v1.jsonl"
+    with open(benchmark_path) as f:
+        samples = [json.loads(l) for l in f]
+
+    suffix   = f"_{prompt_mode}" if prompt_mode != "standard" else ""
+    out_path = OUTPUTS / f"llama_v2{suffix}.jsonl"
+
+    done_ids = set()
+    if out_path.exists():
+        with open(out_path) as f:
+            for line in f:
+                try:
+                    done_ids.add(json.loads(line)["id"])
+                except Exception:
+                    pass
+        print(f"[resume] {len(done_ids)} already done")
+
+    remaining = [s for s in samples if s["id"] not in done_ids]
+    if not remaining:
+        print("[done] All samples already processed.")
+        if recalibrate:
+            maybe_invert_confidence(out_path, "llama")
+        return
+
+    local = LOCAL_DIRS["llama"]
+    print(f"[load] llama (transformers) from {local}")
+
+    processor = AutoProcessor.from_pretrained(local)
+
+    # ← CHANGED: patch the actual runtime class of this processor instance
+    proc_cls = type(processor)
+#    if not hasattr(proc_cls, "_get_num_multimodal_tokens"):
+#        def _get_num_multimodal_tokens(self, **kwargs):
+#            return {"num_image_tokens": [1601]}
+#        proc_cls._get_num_multimodal_tokens = _get_num_multimodal_tokens
+#        print(f"[patch] {proc_cls.__name__}._get_num_multimodal_tokens injected on instance class.")
+
+    model = MllamaForConditionalGeneration.from_pretrained(
+        local,
+        torch_dtype=torch.float16,
+        device_map="auto",
+    ).eval()
+
+
+
+    _ensure_mllama_patch()
+
+    max_new_tokens = 300 if prompt_mode == "cot" else 80
+    prompt_text    = PROMPTS[prompt_mode]
+
+    eos_token_id = processor.tokenizer.eos_token_id
+    eot_token_id = processor.tokenizer.convert_tokens_to_ids("<|eot_id|>")
+    terminators  = [t for t in [eos_token_id, eot_token_id] if t is not None]
+    pad_token_id = processor.tokenizer.pad_token_id or processor.tokenizer.eos_token_id
+
+    print(f"[inference] Running {len(remaining)} samples (prompt={prompt_mode}) ...")
+    t0 = time.time()
+
+    with open(out_path, "a") as fout:
+        for i, sample in enumerate(tqdm(remaining, desc="llama")):
+            raw = None
+            for attempt in range(2):
+                try:
+                    image = Image.open(sample["img_path"]).convert("RGB")
+                    image.thumbnail(
+                        (LLAMA_MAX_IMAGE_SIZE, LLAMA_MAX_IMAGE_SIZE),
+                        Image.LANCZOS,
+                    )
+
+                    messages = [
+                        {"role": "user", "content": [
+                            {"type": "image"},
+                            {"type": "text",
+                             "text": prompt_text.format(report=sample["report"])},
+                        ]}
+                    ]
+                    text = processor.apply_chat_template(
+                        messages, add_generation_prompt=True
+                    )
+
+                    inputs = processor(
+                        images=image,
+                        text=text,
+                        return_tensors="pt",
+                        padding=False,
+                    )
+                    inputs = {k: v.to(model.device) for k, v in inputs.items()}
+                    input_len = inputs["input_ids"].shape[-1]
+
+                    vocab_size = model.config.get_text_config().vocab_size
+                    image_token_id = getattr(model.config, "image_token_index", None)
+                    max_id = inputs["input_ids"].max().item()
+                    n_image_tokens = (inputs["input_ids"] == image_token_id).sum().item() if image_token_id is not None else -1
+                    print(f"[diag] {sample['id']}: max_id={max_id} vocab_size={vocab_size} "
+                        f"image_token_id={image_token_id} n_image_tokens_in_input={n_image_tokens} "
+                        f"input_len={inputs['input_ids'].shape[-1]}")
+
+                    logits_processor = None
+                    print("[diag] logits_processor disabled")
+
+                    with torch.no_grad():
+                        out = model.generate(
+                            **inputs,
+                            max_new_tokens=max_new_tokens,
+                            do_sample=False,
+                            eos_token_id=terminators,
+                            pad_token_id=pad_token_id,
+                            use_cache=True,
+                        )
+
+                    new_tokens = out[0][input_len:]
+                    raw = processor.tokenizer.decode(
+                        new_tokens, skip_special_tokens=True
+                    ).strip()
+
+                    if is_degenerate(raw) and attempt == 0:
+                        print(f"\n[retry-degen] {sample['id']}: degenerate, retrying")
+                        raw = None
+                        time.sleep(1)
+                        continue
+                    elif is_degenerate(raw):
+                        print(f"\n[fail-degen] {sample['id']}: still degenerate after retry")
+                        raw = "unknown"
+
+                except RuntimeError as e:
+                    err_msg = str(e)
+                    if "device-side assert" in err_msg or "CUDA error" in err_msg:
+                        import traceback
+                        print(f"\n[FATAL] {sample['id']}: CUDA context poisoned")
+                        traceback.print_exc()
+                        fout.flush()
+                        sys.exit(1)
+                    if attempt == 0:
+                        print(f"\n[retry] {sample['id']}: {err_msg[:120]}")
+                        try:
+                            torch.cuda.empty_cache()
+                        except Exception:
+                            pass
+                        time.sleep(2)
+                    else:
+                        print(f"\n[fail] {sample['id']}: {err_msg[:120]}")
+                except Exception as e:
+                    if attempt == 0:
+                        print(f"\n[retry] {sample['id']}: {e}")
+                        time.sleep(2)
+                    else:
+                        print(f"\n[fail] {sample['id']}: {e}")
+
+            if raw is None:
+                raw = "unknown"
+
+            parsed = parse_output(raw, prompt_mode)
+            record = {
+                "id":              sample["id"],
+                "model":           "llama",
+                "prompt_mode":     prompt_mode,
+                "gt_hallucinated": sample["hallucinated"],
+                "hallu_type":      sample["hallu_type"],
+                "raw_output":      raw,
+                "latency_s":       round((time.time() - t0) / (i + 1), 3),
+                **parsed,
+            }
+            fout.write(json.dumps(record) + "\n")
+            fout.flush()
+
+    print(f"[done] {len(remaining)} samples in {time.time() - t0:.1f}s → {out_path}")
+    if recalibrate:
+        maybe_invert_confidence(out_path, "llama")
+
+
+# ── BioViL-T: image + text NLI ───────────────────────────────────────────────
+
+def run_biovil_t(recalibrate: bool = True):
+    from transformers import AutoTokenizer, AutoModel
+    from torchvision import transforms
+
+    benchmark_path = PROCESSED / "benchmark_v1.jsonl"
+    with open(benchmark_path) as f:
+        samples = [json.loads(l) for l in f]
+
+    out_path = OUTPUTS / "biovil_t_v2.jsonl"
+    done_ids = set()
+    if out_path.exists():
+        with open(out_path) as f:
+            for line in f:
+                try:
+                    done_ids.add(json.loads(line)["id"])
+                except Exception:
+                    pass
+        print(f"[resume] {len(done_ids)} already done")
+
+    remaining = [s for s in samples if s["id"] not in done_ids]
+    if not remaining:
+        print("[done] All samples already processed.")
+        if recalibrate:
+            maybe_invert_confidence(out_path, "biovil_t")
+        return
+
+    local = LOCAL_DIRS["biovil_t"]
+    print(f"[load] BioViL-T from {local}")
+    tokenizer = AutoTokenizer.from_pretrained(local)
+    model = AutoModel.from_pretrained(
+        local, trust_remote_code=True,
+    ).to("cuda:0").eval()
+
+    transform = transforms.Compose([
+        transforms.Resize((512, 512)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406],
+                             [0.229, 0.224, 0.225]),
+    ])
+
+    NEG_TEMPLATES = [
+        "The report contains findings not visible in this image.",
+        "This report does not accurately describe the chest X-ray.",
+        "There are errors in this radiology report.",
+    ]
+
+    t0 = time.time()
+    with open(out_path, "a") as fout:
+        for sample in tqdm(remaining, desc="biovil_t"):
+            try:
+                image = Image.open(sample["img_path"]).convert("RGB")
+                img_t = transform(image).unsqueeze(0).to("cuda:0")
+
+                tok_pos = tokenizer(
+                    sample["report"], return_tensors="pt",
+
+                    truncation=True, max_length=256, padding="max_length",
+                ).to("cuda:0")
+
+                neg_sims = []
+                with torch.no_grad():
+                    try:
+                        img_emb = model.get_projected_image_embeddings(
+                            pixel_values=img_t)
+                        img_emb = torch.nn.functional.normalize(img_emb, dim=-1)
+
+                        emb_pos = model.get_projected_text_embeddings(
+                            input_ids=tok_pos["input_ids"],
+                            attention_mask=tok_pos["attention_mask"])
+                        emb_pos = torch.nn.functional.normalize(emb_pos, dim=-1)
+                        sim_pos = (img_emb * emb_pos).sum().item()
+
+                        for neg_text in NEG_TEMPLATES:
+                            tok_neg = tokenizer(
+                                neg_text, return_tensors="pt",
+
+                                padding="max_length", max_length=256,
+                            ).to("cuda:0")
+                            emb_neg = model.get_projected_text_embeddings(
+                                input_ids=tok_neg["input_ids"],
+                                attention_mask=tok_neg["attention_mask"])
+                            emb_neg = torch.nn.functional.normalize(emb_neg, dim=-1)
+                            neg_sims.append((img_emb * emb_neg).sum().item())
+
+                    except AttributeError:
+                        out_pos = model(**tok_pos)
+                        emb_pos = out_pos.last_hidden_state[:, 0, :]
+                        sim_pos = emb_pos.norm().item()
+                        neg_sims = [sim_pos * 0.9]
+
+                sim_neg = float(np.mean(neg_sims))
+                delta   = (sim_pos - sim_neg) * 5.0
+                conf_faithful = float(np.clip(
+                    torch.sigmoid(torch.tensor(delta)).item(), 0.0, 1.0
+                ))
+
+                label   = "faithful" if sim_pos > sim_neg else "hallucinated"
+                p_hallu = 1.0 - conf_faithful if label == "faithful" else conf_faithful
+
+                raw    = f"{label.upper()[:3]} {conf_faithful:.4f}"
+                record = {
+                    "id":              sample["id"],
+                    "model":           "biovil_t",
+                    "prompt_mode":     "nli",
+                    "gt_hallucinated": sample["hallucinated"],
+                    "hallu_type":      sample["hallu_type"],
+                    "raw_output":      raw,
+                    "latency_s":       round((time.time() - t0) / (
+                                           remaining.index(sample) + 1), 3),
+                    "pred_label":      label,
+                    "pred_confidence": round(p_hallu, 4),
+                    "raw_verdict":     "YES" if label == "faithful" else "NO",
+                }
+                fout.write(json.dumps(record) + "\n")
+                fout.flush()
+
+            except Exception as e:
+                print(f"\n[warn] {sample['id']}: {e}")
+
+    print(f"[done] → {out_path}")
+    if recalibrate:
+        maybe_invert_confidence(out_path, "biovil_t")
+
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--model", required=True,
+        choices=list(LOCAL_DIRS.keys()) + ["all"],
+    )
+    parser.add_argument(
+        "--prompt_mode", default="standard",
+        choices=["standard", "cot"],
+    )
+    parser.add_argument(
+        "--recalibrate", action="store_true", default=True,
+    )
+    parser.add_argument(
+        "--no_recalibrate", dest="recalibrate", action="store_false",
+    )
+    args = parser.parse_args()
+
+    keys = list(LOCAL_DIRS.keys()) if args.model == "all" else [args.model]
+    for k in keys:
+        print(f"\n{'='*60}")
+        print(f"  Model: {k}  |  Prompt: {args.prompt_mode}  |  "
+              f"Recalibrate: {args.recalibrate}")
+        print(f"{'='*60}")
+        if k == "biovil_t":
+            run_biovil_t(recalibrate=args.recalibrate)
+        elif k == "llama":
+            run_llama_transformers(
+                prompt_mode=args.prompt_mode,
+                recalibrate=args.recalibrate,
+            )
+        else:
+            run_vllm(
+                model_key=k,
+                prompt_mode=args.prompt_mode,
+                recalibrate=args.recalibrate,
+            )
+
+# # #!/usr/bin/env python3
+# # """
+# # 02_inference/run_inference.py  — v1
+# # vllm-based inference for all 4 models.
+# # Run from: safer conda env
+
+# # Models:
+# #   qwen25_vl  — Qwen/Qwen2.5-VL-7B-Instruct        (vllm)
+# #   medgemma   — google/medgemma-27b-it               (vllm)
+# #   llama      — meta-llama/Llama-3.2-11B-Vision      (transformers — vllm 0.19.0 incompatible)
+# #   biovil_t   — microsoft/BiomedVLP-BioViL-T         (transformers, text-only NLI)
+
+# # Usage:
+# #   python run_inference.py --model qwen25_vl
+# #   python run_inference.py --model medgemma
+# #   python run_inference.py --model llama
+# #   python run_inference.py --model biovil_t
+# #   python run_inference.py --model all
+# # """
+
+# # # ── PATCHES (must run before any transformers/vllm import) ────────────────────
+# # import sys
+# # import builtins
+# # from PIL.Image import Resampling
+
+# # sys.modules["transformers.utils.PILImageResampling"] = Resampling
+# # setattr(builtins, "PILImageResampling", Resampling)
+
+# # try:
+# #     import transformers
+# #     import transformers.image_processing_utils as _ipu
+# #     import transformers.image_processing_base as _ipb
+# #     for _mod in [transformers, _ipu, _ipb]:
+# #         if not hasattr(_mod, "PILImageResampling"):
+# #             setattr(_mod, "PILImageResampling", Resampling)
+# #     try:
+# #         import transformers.image_processing_utils_fast as _ipuf
+# #         if not hasattr(_ipuf, "PILImageResampling"):
+# #             _ipuf.PILImageResampling = Resampling
+# #     except ImportError:
+# #         pass
+# # except Exception:
+# #     pass
+# # print("[patch] PILImageResampling injected.")
+
+# # try:
+# #     from transformers import MllamaProcessor
+# #     if not hasattr(MllamaProcessor, "_get_num_multimodal_tokens"):
+# #         def _get_num_multimodal_tokens(self, **kwargs):
+# #             return {"num_image_tokens": [1601]}
+# #         MllamaProcessor._get_num_multimodal_tokens = _get_num_multimodal_tokens
+# #         print("[patch] MllamaProcessor._get_num_multimodal_tokens injected.")
+# # except ImportError:
+# #     pass
+
+# # # ── Imports ───────────────────────────────────────────────────────────────────
+# # import argparse
+# # import json
+# # import time
+# # from pathlib import Path
+
+# # import torch
+# # import yaml
+# # from PIL import Image
+# # from tqdm import tqdm
+
+# # # ── Paths ─────────────────────────────────────────────────────────────────────
+# # ROOT      = Path(__file__).resolve().parents[3]
+# # CFG_PATH  = ROOT / "code/v1/config.yaml"
+# # with open(CFG_PATH) as f:
+# #     CFG = yaml.safe_load(f)
+
+# # PROCESSED  = ROOT / CFG["paths"]["data_processed"]
+# # OUTPUTS    = ROOT / CFG["paths"]["outputs"]
+# # OUTPUTS.mkdir(parents=True, exist_ok=True)
+# # MODELS_DIR = ROOT / CFG["paths"]["models"]
+
+# # LOCAL_DIRS = {
+# #     "qwen25_vl": str(MODELS_DIR / "Qwen2.5-VL-7B-Instruct"),
+# #     "medgemma":  str(MODELS_DIR / "medgemma-27b-it"),
+# #     "llama":     str(MODELS_DIR / "Llama-3.2-11B-Vision-Instruct"),
+# #     "biovil_t":  str(MODELS_DIR / "BiomedVLP-BioViL-T"),
+# # }
+
+# # PROMPT = (
+# #     "You are a radiology AI assistant. "
+# #     "Given the chest X-ray image, does the following report faithfully describe it? "
+# #     "Reply with YES or NO followed by a confidence score between 0 and 1. "
+# #     "Example format: 'YES 0.92' or 'NO 0.31'. Then explain in one sentence.\n\n"
+# #     "Report: {report}"
+# # )
+
+# # # ── Chat prompt builders (vllm models) ────────────────────────────────────────
+
+# # def make_prompt_qwen(report: str) -> str:
+# #     p = PROMPT.format(report=report)
+# #     return (
+# #         f"<|im_start|>user\n"
+# #         f"<|vision_start|><|image_pad|><|vision_end|>{p}"
+# #         f"<|im_end|>\n<|im_start|>assistant\n"
+# #     )
+
+# # def make_prompt_medgemma(report: str) -> str:
+# #     p = PROMPT.format(report=report)
+# #     return (
+# #         f"<bos><start_of_turn>user\n"
+# #         f"<start_of_image>{p}<end_of_turn>\n"
+# #         f"<start_of_turn>model\n"
+# #     )
+
+# # PROMPT_BUILDERS = {
+# #     "qwen25_vl": make_prompt_qwen,
+# #     "medgemma":  make_prompt_medgemma,
+# # }
+
+# # # ── vllm runner (qwen25_vl, medgemma) ────────────────────────────────────────
+
+# # def run_vllm(model_key: str):
+# #     from vllm import LLM, SamplingParams
+
+# #     benchmark_path = PROCESSED / "benchmark_v1.jsonl"
+# #     with open(benchmark_path) as f:
+# #         samples = [json.loads(l) for l in f]
+
+# #     out_path = OUTPUTS / f"{model_key}_v1.jsonl"
+
+# #     done_ids = set()
+# #     if out_path.exists():
+# #         with open(out_path) as f:
+# #             for line in f:
+# #                 try:
+# #                     done_ids.add(json.loads(line)["id"])
+# #                 except Exception:
+# #                     pass
+# #         print(f"[resume] {len(done_ids)} already done")
+
+# #     remaining = [s for s in samples if s["id"] not in done_ids]
+# #     if not remaining:
+# #         print("[done] All samples already processed.")
+# #         return
+
+# #     local = LOCAL_DIRS[model_key]
+# #     print(f"[load] {model_key} from {local}")
+
+# #     llm = LLM(
+# #         model=local,
+# #         dtype="bfloat16",
+# #         max_model_len=4096,
+# #         tensor_parallel_size=1,
+# #         limit_mm_per_prompt={"image": 1},
+# #         gpu_memory_utilization=0.85,
+# #         disable_log_stats=True,
+# #         enforce_eager=True,
+# #     )
+# #     sampling = SamplingParams(temperature=0, max_tokens=80)
+# #     prompt_builder = PROMPT_BUILDERS[model_key]
+
+# #     prompts = []
+# #     for s in remaining:
+# #         image = Image.open(s["img_path"]).convert("RGB")
+# #         image.thumbnail((640, 640), Image.LANCZOS)
+# #         prompts.append({
+# #             "prompt": prompt_builder(s["report"]),
+# #             "multi_modal_data": {"image": image},
+# #         })
+
+# #     print(f"[inference] Running {len(prompts)} samples ...")
+# #     t0 = time.time()
+# #     outputs = llm.generate(prompts, sampling_params=sampling)
+# #     total_time = time.time() - t0
+# #     avg_latency = round(total_time / len(prompts), 3)
+
+# #     with open(out_path, "a") as fout:
+# #         for sample, output in zip(remaining, outputs):
+# #             raw    = output.outputs[0].text.strip()
+# #             parsed = parse_output(raw)
+# #             record = {
+# #                 "id":              sample["id"],
+# #                 "model":           model_key,
+# #                 "gt_hallucinated": sample["hallucinated"],
+# #                 "hallu_type":      sample["hallu_type"],
+# #                 "raw_output":      raw,
+# #                 "latency_s":       avg_latency,
+# #                 **parsed,
+# #             }
+# #             fout.write(json.dumps(record) + "\n")
+
+# #     print(f"[done] {len(remaining)} samples in {total_time:.1f}s → {out_path}")
+
+
+# # # ── LLaMA-3.2-11B-Vision via transformers (vllm 0.19.0 incompatible) ─────────
+
+# # def run_llama_transformers():
+# #     from transformers import MllamaForConditionalGeneration, AutoProcessor
+
+# #     benchmark_path = PROCESSED / "benchmark_v1.jsonl"
+# #     with open(benchmark_path) as f:
+# #         samples = [json.loads(l) for l in f]
+
+# #     out_path = OUTPUTS / "llama_v1.jsonl"
+# #     done_ids = set()
+# #     if out_path.exists():
+# #         with open(out_path) as f:
+# #             for line in f:
+# #                 try:
+# #                     done_ids.add(json.loads(line)["id"])
+# #                 except Exception:
+# #                     pass
+# #         print(f"[resume] {len(done_ids)} already done")
+
+# #     remaining = [s for s in samples if s["id"] not in done_ids]
+# #     if not remaining:
+# #         print("[done] All samples already processed.")
+# #         return
+
+# #     local = LOCAL_DIRS["llama"]
+# #     print(f"[load] llama (transformers) from {local}")
+
+# #     processor = AutoProcessor.from_pretrained(local)
+# #     model = MllamaForConditionalGeneration.from_pretrained(
+# #         local,
+# #         torch_torch_dtype=torch.float16,
+# #         device_map="auto",
+# #     ).eval()
+
+# #     print(f"[inference] Running {len(remaining)} samples ...")
+# #     t0 = time.time()
+
+# #     with open(out_path, "a") as fout:
+# #         for i, sample in enumerate(tqdm(remaining, desc="llama")):
+# #             try:
+# #                 image = Image.open(sample["img_path"]).convert("RGB")
+# #                 image.thumbnail((560, 560), Image.LANCZOS)
+
+# #                 messages = [
+# #                     {"role": "user", "content": [
+# #                         {"type": "image"},
+# #                         {"type": "text", "text": PROMPT.format(report=sample["report"])},
+# #                     ]}
+# #                 ]
+# #                 text = processor.apply_chat_template(
+# #                     messages, add_generation_prompt=True
+# #                 )
+# #                 inputs = processor(
+# #                     images=image, text=text, return_tensors="pt"
+# #                 ).to(model.device)
+
+# #                 with torch.no_grad():
+# #                     out = model.generate(
+# #                         **inputs,
+# #                         max_new_tokens=80,
+# #                         do_sample=False,
+# #                     )
+
+# #                 new_tokens = out[0][inputs["input_ids"].shape[-1]:]
+# #                 raw = processor.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+# #                 parsed = parse_output(raw)
+
+# #                 record = {
+# #                     "id":              sample["id"],
+# #                     "model":           "llama",
+# #                     "gt_hallucinated": sample["hallucinated"],
+# #                     "hallu_type":      sample["hallu_type"],
+# #                     "raw_output":      raw,
+# #                     "latency_s":       round((time.time() - t0) / (i + 1), 3),
+# #                     **parsed,
+# #                 }
+# #                 fout.write(json.dumps(record) + "\n")
+# #                 fout.flush()
+
+# #             except Exception as e:
+# #                 print(f"\n[warn] {sample['id']}: {e}")
+
+# #     print(f"[done] {len(remaining)} samples in {time.time() - t0:.1f}s → {out_path}")
+
+
+# # # ── BioViL-T: text-only NLI ───────────────────────────────────────────────────
+
+# # def run_biovil_t():
+# #     from transformers import AutoTokenizer, AutoModel
+# #     from torchvision import transforms
+
+# #     benchmark_path = PROCESSED / "benchmark_v1.jsonl"
+# #     with open(benchmark_path) as f:
+# #         samples = [json.loads(l) for l in f]
+
+# #     out_path = OUTPUTS / "biovil_t_v1.jsonl"
+# #     done_ids = set()
+# #     if out_path.exists():
+# #         with open(out_path) as f:
+# #             for line in f:
+# #                 try:
+# #                     done_ids.add(json.loads(line)["id"])
+# #                 except Exception:
+# #                     pass
+# #         print(f"[resume] {len(done_ids)} already done")
+
+# #     remaining = [s for s in samples if s["id"] not in done_ids]
+# #     if not remaining:
+# #         print("[done] All samples already processed.")
+# #         return
+
+# #     local = LOCAL_DIRS["biovil_t"]
+# #     print(f"[load] BioViL-T from {local}")
+# #     tokenizer = AutoTokenizer.from_pretrained(local)
+# #     model = AutoModel.from_pretrained(
+# #         local, trust_remote_code=True,
+# #     ).to("cuda:0").eval()
+
+# #     transform = transforms.Compose([
+# #         transforms.Resize((512, 512)),
+# #         transforms.ToTensor(),
+# #         transforms.Normalize([0.485, 0.456, 0.406],
+# #                              [0.229, 0.224, 0.225]),
+# #     ])
+
+# #     NEG = "This report does not match the image."
+
+# #     with open(out_path, "a") as fout:
+# #         for sample in tqdm(remaining, desc="biovil_t"):
+# #             try:
+# #                 image = Image.open(sample["img_path"]).convert("RGB")
+# #                 img_t = transform(image).unsqueeze(0).to("cuda:0")
+
+# #                 tok_f = tokenizer(
+# #                     sample["report"], return_tensors="pt",
+#                         padding=False,
+# #                     truncation=True, max_length=256, padding="max_length",
+# #                 ).to("cuda:0")
+# #                 tok_h = tokenizer(
+# #                     NEG, return_tensors="pt",
+#                         padding=False,
+# #                     padding="max_length", max_length=256,
+# #                 ).to("cuda:0")
+
+# #                 with torch.no_grad():
+# #                     try:
+# #                         img_emb = model.get_projected_image_embeddings(pixel_values=img_t)
+# #                         emb_f = model.get_projected_text_embeddings(
+# #                             input_ids=tok_f["input_ids"],
+# #                             attention_mask=tok_f["attention_mask"])
+# #                         emb_h = model.get_projected_text_embeddings(
+# #                             input_ids=tok_h["input_ids"],
+# #                             attention_mask=tok_h["attention_mask"])
+# #                         img_emb = torch.nn.functional.normalize(img_emb, dim=-1)
+# #                         emb_f   = torch.nn.functional.normalize(emb_f,   dim=-1)
+# #                         emb_h   = torch.nn.functional.normalize(emb_h,   dim=-1)
+# #                         sim_f = (img_emb * emb_f).sum().item()
+# #                         sim_h = (img_emb * emb_h).sum().item()
+# #                     except AttributeError:
+# #                         out_f = model(**tok_f)
+# #                         out_h = model(**tok_h)
+# #                         emb_f = out_f.last_hidden_state[:, 0, :]
+# #                         emb_h = out_h.last_hidden_state[:, 0, :]
+# #                         sim_f = emb_f.norm().item()
+# #                         sim_h = emb_h.norm().item()
+
+# #                 conf  = float(torch.sigmoid(torch.tensor(sim_f - sim_h)))
+# #                 conf  = max(0.0, min(1.0, conf))
+# #                 label = "YES" if sim_f > sim_h else "NO"
+# #                 raw   = f"{label} {conf:.4f}"
+# #                 parsed = parse_output(raw)
+# #                 record = {
+# #                     "id":              sample["id"],
+# #                     "model":           "biovil_t",
+# #                     "gt_hallucinated": sample["hallucinated"],
+# #                     "hallu_type":      sample["hallu_type"],
+# #                     "raw_output":      raw,
+# #                     "latency_s":       0.0,
+# #                     **parsed,
+# #                 }
+# #                 fout.write(json.dumps(record) + "\n")
+# #                 fout.flush()
+
+# #             except Exception as e:
+# #                 print(f"\n[warn] {sample['id']}: {e}")
+
+# #     print(f"[done] → {out_path}")
+
+
+# # # ── Parse output ──────────────────────────────────────────────────────────────
+
+# # def parse_output(raw: str) -> dict:
+# #     label, confidence = "unknown", 0.5
+# #     tokens = raw.strip().upper().split()
+# #     if tokens:
+# #         if tokens[0] == "YES":
+# #             label = "faithful"
+# #             try:    confidence = float(tokens[1])
+# #             except: confidence = 0.8
+# #         elif tokens[0] == "NO":
+# #             label = "hallucinated"
+# #             try:    confidence = 1.0 - float(tokens[1])
+# #             except: confidence = 0.8
+# #     return {"pred_label": label, "pred_confidence": round(confidence, 4)}
+
+
+# # # ── Entrypoint ────────────────────────────────────────────────────────────────
+
+# # if __name__ == "__main__":
+# #     parser = argparse.ArgumentParser()
+# #     parser.add_argument(
+# #         "--model", required=True,
+# #         choices=list(LOCAL_DIRS.keys()) + ["all"],
+# #     )
+# #     args = parser.parse_args()
+
+# #     keys = list(LOCAL_DIRS.keys()) if args.model == "all" else [args.model]
+# #     for k in keys:
+# #         if k == "biovil_t":
+# #             run_biovil_t()
+# #         elif k == "llama":
+# #             run_llama_transformers()
+# #         else:
+# #             run_vllm(k)

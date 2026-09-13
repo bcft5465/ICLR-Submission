@@ -1,0 +1,81 @@
+{
+  "class_prior_hallucinated": 0.4706,
+  "specificity_fixed_at": 0.03,
+  "mcc_floor_tested": 0.05,
+  "highest_recall_where_original_disc_below_0.10": null,
+  "note": "If the ORIGINAL discrimination formula only drops below 0.10 at very high recall (close to 1.0), that IS the blind spot: a model predicting 'hallucinated' ~90-97% of the time (like CheXagent, recall=0.979) still scores well above the near-degenerate threshold. The MCC-gated fix should show a sharper, earlier cutoff.",
+  "real_model_discrimination_at_reported_recall": [
+    {
+      "model": "chexagent",
+      "recall": 0.979,
+      "specificity": 0.0317,
+      "mcc": 0.033,
+      "f1": 0.6381,
+      "discrimination": 0.5741
+    },
+    {
+      "model": "qwen25_vl",
+      "recall": 0.9992,
+      "specificity": 0.0057,
+      "mcc": 0.0424,
+      "f1": 0.641,
+      "discrimination": 0.578
+    },
+    {
+      "model": "llava15",
+      "recall": 1.0,
+      "specificity": 0.0,
+      "mcc": 0.0,
+      "f1": 0.64,
+      "discrimination": 0.5657
+    },
+    {
+      "model": "phi3_vision",
+      "recall": 1.0,
+      "specificity": 0.0002,
+      "mcc": 0.0104,
+      "f1": 0.64,
+      "discrimination": 0.5686
+    },
+    {
+      "model": "medgemma",
+      "recall": 0.5826,
+      "specificity": 0.8012,
+      "mcc": 0.3948,
+      "f1": 0.6451,
+      "discrimination": 0.6707
+    },
+    {
+      "model": "biovil_t",
+      "recall": 0.0,
+      "specificity": 1.0,
+      "mcc": 0.0,
+      "f1": 0.0,
+      "discrimination": 0.0
+    },
+    {
+      "model": "biomedclip",
+      "recall": 0.0151,
+      "specificity": 0.9565,
+      "mcc": -0.0829,
+      "f1": 0.0284,
+      "discrimination": 0.1141
+    },
+    {
+      "model": "blip2",
+      "recall": 0.3356,
+      "specificity": 0.6454,
+      "mcc": -0.0199,
+      "f1": 0.387,
+      "discrimination": 0.4355
+    },
+    {
+      "model": "constant_faithful",
+      "recall": 0.0,
+      "specificity": 1.0,
+      "mcc": 0.0,
+      "f1": 0.0,
+      "discrimination": 0.0
+    }
+  ]
+}

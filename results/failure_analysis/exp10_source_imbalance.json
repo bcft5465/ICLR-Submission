@@ -1,0 +1,33 @@
+{
+  "10a_class_balance_by_source": {
+    "mimiccxr": {
+      "n": 4500,
+      "n_hallucinated": 2085,
+      "frac_hallucinated": 0.4633
+    },
+    "openi": {
+      "n": 3666,
+      "n_hallucinated": 1733,
+      "frac_hallucinated": 0.4727
+    }
+  },
+  "10a_max_hallucinated_fraction_gap_across_sources": 0.0094,
+  "10b_source_only_classifier_auroc": 0.4941,
+  "10c_within_source_classifier_aurocs": {
+    "mimiccxr": {
+      "n_train": 3375,
+      "n_test": 1125,
+      "auroc": 0.6611
+    },
+    "openi": {
+      "n_train": 2749,
+      "n_test": 917,
+      "auroc": 0.6767
+    }
+  },
+  "10c_mean_within_source_auroc": 0.6689,
+  "exp9_pooled_auroc_reference": 0.6954,
+  "pooled_vs_mean_within_source_auroc_drop": 0.0265,
+  "source_leak_confirmed": false,
+  "interpretation": "No strong evidence of a source-level confound: class balance is similar across sources (10a), a source-only classifier gets close to chance AUROC (10b), and within-source AUROC is close to the pooled Exp 9 number (10c). This means the residual leak identified in Exp 8/9 is NOT explained by combining two datasets with different reporting conventions -- it appears to be a genuine, source-independent property of the injection/selection process itself, and remains only partially diagnosed after four elimination rounds (grammar, closed vocabulary, broader vocabulary/length, and now source). This should be reported as an open, honestly-unresolved limitation of the benchmark's synthetic perturbation methodology rather than pursued further with additional cheap heuristic probes."
+}

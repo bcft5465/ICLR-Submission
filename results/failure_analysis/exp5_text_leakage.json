@@ -1,0 +1,188 @@
+{
+  "n_train": 6124,
+  "n_test": 2042,
+  "trained_classifier": {
+    "accuracy": 0.8408,
+    "balanced_accuracy": 0.8363,
+    "f1": 0.8181,
+    "mcc": 0.6829,
+    "auroc": 0.9183
+  },
+  "span_ablated_classifier": {
+    "accuracy": 0.5602,
+    "balanced_accuracy": 0.5363,
+    "auroc": 0.6543
+  },
+  "drop_from_span_ablation": {
+    "acc_drop": 0.2806,
+    "bal_acc_drop": 0.3,
+    "auroc_drop": 0.264
+  },
+  "top_lexical_features": {
+    "top_tokens_predicting_hallucinated": [
+      {
+        "token": "abnormal",
+        "coef": 10.9376
+      },
+      {
+        "token": "livers",
+        "coef": 9.2155
+      },
+      {
+        "token": "parenchymal effusion",
+        "coef": 7.124
+      },
+      {
+        "token": "parenchymal",
+        "coef": 7.0555
+      },
+      {
+        "token": "livers are",
+        "coef": 6.3278
+      },
+      {
+        "token": "liver",
+        "coef": 6.3087
+      },
+      {
+        "token": "kidney",
+        "coef": 5.2593
+      },
+      {
+        "token": "is abnormal",
+        "coef": 4.4519
+      },
+      {
+        "token": "the livers",
+        "coef": 4.4185
+      },
+      {
+        "token": "diaphragml",
+        "coef": 4.3944
+      },
+      {
+        "token": "no parenchymal",
+        "coef": 4.0888
+      },
+      {
+        "token": "kidney size",
+        "coef": 4.0028
+      },
+      {
+        "token": "severe",
+        "coef": 3.7874
+      },
+      {
+        "token": "chronic cardiopulmonary",
+        "coef": 3.5183
+      },
+      {
+        "token": "diaphragml effusion",
+        "coef": 3.4677
+      },
+      {
+        "token": "abnormal limits",
+        "coef": 3.3208
+      },
+      {
+        "token": "within abnormal",
+        "coef": 3.287
+      },
+      {
+        "token": "no chronic",
+        "coef": 3.2061
+      },
+      {
+        "token": "liver volumes",
+        "coef": 2.976
+      },
+      {
+        "token": "small pleural",
+        "coef": 2.9322
+      }
+    ],
+    "top_tokens_predicting_faithful": [
+      {
+        "token": "lungs",
+        "coef": -3.2477
+      },
+      {
+        "token": "findings impression",
+        "coef": -2.8712
+      },
+      {
+        "token": "lungs are",
+        "coef": -2.7466
+      },
+      {
+        "token": "pleural effusion",
+        "coef": -2.5465
+      },
+      {
+        "token": "normal",
+        "coef": -2.5255
+      },
+      {
+        "token": "pleural",
+        "coef": -1.9161
+      },
+      {
+        "token": "lung",
+        "coef": -1.8325
+      },
+      {
+        "token": "large pleural",
+        "coef": -1.6775
+      },
+      {
+        "token": "impression",
+        "coef": -1.6553
+      },
+      {
+        "token": "the lungs",
+        "coef": -1.5983
+      },
+      {
+        "token": "or pleural",
+        "coef": -1.4989
+      },
+      {
+        "token": "findings",
+        "coef": -1.4431
+      },
+      {
+        "token": "nan",
+        "coef": -1.4425
+      },
+      {
+        "token": "size normal",
+        "coef": -1.4414
+      },
+      {
+        "token": "heart",
+        "coef": -1.4022
+      },
+      {
+        "token": "consolidation pleural",
+        "coef": -1.3733
+      },
+      {
+        "token": "enlarged",
+        "coef": -1.3354
+      },
+      {
+        "token": "normal lungs",
+        "coef": -1.2916
+      },
+      {
+        "token": "within normal",
+        "coef": -1.245
+      },
+      {
+        "token": "the right",
+        "coef": -1.2428
+      }
+    ]
+  },
+  "interpretation": "A trained (not heuristic) text-only classifier reaching well above-chance accuracy/AUROC confirms lexical leakage in the SWAP_MAP-based perturbation strategy. If accuracy collapses sharply after removing the exact injected/original span tokens (drop_from_span_ablation large), the leakage is concentrated in the fixed antonym vocabulary itself and is fixable via paraphrase-preserving perturbation generation. If the drop is small, the classifier is exploiting broader linguistic cues beyond the swap vocabulary, which is a harder problem to fix and should be reported as a more fundamental benchmark limitation."
+}

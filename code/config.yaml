@@ -1,0 +1,206 @@
+# ============================================================
+# SAFER Benchmark — Master Config v2 (post-review)
+#
+# CHANGE LOG vs v1:
+#   - dataset.n_samples removed as a hard cap for the DEFAULT pipeline.
+#     Multi-source (OpenI + ReXGradient) is now the default benchmark
+#     build; n_total is None (use everything loaded) unless overridden.
+#     The OLD 500-sample single-source path is kept as `legacy_single_source`
+#     below purely for reproducing the original submission's numbers, and
+#     is no longer read by run_pipeline.sh by default.
+#   - metrics.halluscores_weights renamed metrics.halluscore.weights and is
+#     now ACTUALLY READ by 03_metrics/compute_metrics.py (previously this
+#     block was dead — the code hardcoded W_DISC/W_ECE/W_TYPE independently
+#     of this file, which is exactly the kind of silent config/code drift
+#     the reviewers flagged for HalluScore once already). The three weight
+#     keys are also renamed faithfulness -> discrimination to reflect the
+#     redesigned formula (Discrimination = sqrt(MCC_norm * F1), replacing
+#     raw clean-sample accuracy) so the config's own field names don't lie
+#     about what they weight.
+#   - metrics.ece_bins is now actually read (previously code hardcoded
+#     N_BINS=10 while this said 15 — now they must agree, single source).
+#   - Added metrics.halluscore.weight_schemes for the ablation study, also
+#     now read from config rather than hardcoded in compute_metrics.py.
+# ============================================================
+
+version: "v2"
+
+paths:
+  data_raw:        "data/v1/raw"
+  data_processed:  "data/v1/processed"
+  models:          "data/v1/models"
+  outputs:         "results/v1/outputs"
+  metrics:         "results/v1/metrics"
+  figures:         "results/v1/figures"
+
+# ---------- Dataset ----------
+dataset:
+  # Default / current benchmark: 2 sources, EACH capped at 4500 records
+  # independently (per_source_cap), for a combined benchmark of up to
+  # 9000 samples (4500 OpenI + 4500 ReXGradient). OpenI's true yield after
+  # frontal-view + non-empty-report filtering is ~3,955 — BELOW the 4500
+  # cap — so the actual combined total will be slightly under 9000
+  # (~8,455), and that shortfall is accepted as-is: it is NOT topped up
+  # from ReXGradient, and is reported explicitly in the build script's
+  # console output / source_counts so it's never silently hidden.
+  #
+  # per_source_cap is read by build_multi_source() in
+  # build_benchmark_multi.py, which caps each source's contribution
+  # BEFORE combining — this is deliberately different from the old
+  # n_total behavior (below), which pooled ALL sources together and
+  # truncated the COMBINED pool, letting whichever source was naturally
+  # larger dominate the final mix. Set per_source_cap: null to fall back
+  # to that legacy pool-then-truncate-by-n_total behavior instead.
+  sources: ["openi", "mimiccxr"]
+  per_source_cap: 4500
+  n_total: null            # only used if per_source_cap is null (legacy mode)
+  # No reason to select more ReXGradient candidate studies than the cap
+  # actually needs — this also avoids scanning further into the ~150GB of
+  # compressed archives than necessary. If per_source_cap is set and this
+  # is left at its old value, build_benchmark_multi.py overrides it to
+  # match per_source_cap automatically; set explicitly here anyway so the
+  # config file itself isn't misleading to read.
+  rexgradient_target_n: null
+  injection_rate: 0.5
+  random_seed: 42
+
+  # Kept ONLY so the original 500-sample OpenI-only submission can still be
+  # exactly reproduced on request (e.g. for a reviewer asking "show me the
+  # original numbers"). NOT used by the default pipeline.
+  legacy_single_source:
+    name: "openi"
+    n_samples: 500
+    download_url: "https://openi.nlm.nih.gov/imgs/collections/NLMCXR_png.tgz"
+    reports_url:  "https://openi.nlm.nih.gov/imgs/collections/NLMCXR_reports.tgz"
+
+# ---------- Hallucination Injection ----------
+hallucination:
+  types:
+    - object      # wrong anatomy mentioned (e.g., "liver" in chest X-ray report)
+    - attribute   # wrong property (e.g., "large" -> "small" opacity)
+    - relational  # wrong spatial relation (e.g., "left" -> "right")
+  per_type_balance: true  # equal distribution across 3 types
+
+# ---------- Models ----------
+models:
+  medgemma:
+    name: "MedGemma-27B"
+    local_dir: "medgemma-27b-it"
+    dtype: "bfloat16"
+    max_new_tokens: 128
+    device_map: "auto"
+
+  # llama:
+  #   name: "LLaMA-3.2-11B-Vision"
+  #   local_dir: "Llama-3.2-11B-Vision-Instruct"
+  #   dtype: "bfloat16"
+  #   max_new_tokens: 128
+  #   device_map: "auto"
+
+  biovil_t:
+    name: "BioViL-T"
+    local_dir: "BiomedVLP-BioViL-T"
+    dtype: "float16"
+    max_new_tokens: 128
+    device_map: "auto"
+
+  qwen25_vl:
+    name: "Qwen2.5-VL-7B"
+    local_dir: "Qwen2.5-VL-7B-Instruct"
+    dtype: "bfloat16"
+    max_new_tokens: 128
+    device_map: "auto"
+
+  # llava_med:
+  #     name: "LLaVA-Med-7B"
+  #     local_dir: "llava-med-7b"
+  #     dtype: "bfloat16"
+  #     max_new_tokens: 128
+  #     device_map: "auto"
+
+  chexagent:
+      name: "CheXagent-8B"
+      local_dir: "CheXagent-8b"
+      dtype: "bfloat16"
+      max_new_tokens: 128
+      device_map: "auto"
+
+  biomedclip:
+      name: "BiomedCLIP-300M"
+      local_dir: "BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"
+      dtype: "float16"
+      max_new_tokens: 128
+      device_map: "auto"
+
+  med_flamingo:
+      name: "Med-Flamingo"
+      local_dir: "med-flamingo"
+      dtype: "bfloat16"
+      max_new_tokens: 128
+      device_map: "auto"
+
+  phi3_vision:
+      name: "Phi-3-Vision-4B"
+      local_dir: "Phi-3-vision-128k-instruct"
+      dtype: "bfloat16"
+      max_new_tokens: 128
+      device_map: "auto"
+
+  blip2:
+      name: "BLIP-2-OPT-6.7B"
+      local_dir: "blip2-opt-6.7b"
+      dtype: "float16"
+      max_new_tokens: 128
+      device_map: "auto"
+
+  llava15:
+      name: "LLaVA-1.5-13B"
+      local_dir: "llava-1.5-13b-hf"
+      dtype: "bfloat16"
+      max_new_tokens: 128
+      device_map: "auto"
+
+# ---------- Metrics ----------
+metrics:
+  ece_bins: 10                     # NOW actually read by compute_metrics.py
+  faithfulness_threshold: 0.5
+
+  halluscore:
+    # NOW actually read by compute_metrics.py (previously dead/ignored).
+    # Field names reflect the redesigned formula:
+    #   HalluScore = w_discrimination * Discrimination
+    #              + w_ece           * (1 - ECE)
+    #              + w_type_accuracy * TypeAccuracy
+    # where Discrimination = sqrt(MCC_norm * F1) (NOT raw clean-sample
+    # accuracy — that was the pre-review formula that let a degenerate
+    # "always predict faithful" model score near the top; see paper
+    # Section 5 rewrite).
+    weights:
+      discrimination: 0.5
+      ece: 0.3
+      type_accuracy: 0.2
+
+    # Ablation schemes reported in the paper's weight-justification
+    # analysis (Reviewer aebp: "rationale behind weights not well
+    # justified"). "main" MUST match the `weights` block above exactly —
+    # compute_metrics.py asserts this at runtime so the two can never
+    # silently drift apart again.
+    weight_schemes:
+      main:        [0.5,   0.3,   0.2]
+      equal:       [0.333, 0.333, 0.334]
+      calib_heavy: [0.3,   0.5,   0.2]
+      type_heavy:  [0.4,   0.2,   0.4]
+      disc_only:   [1.0,   0.0,   0.0]
+
+# ---------- Inference ----------
+inference:
+  batch_size: 4
+  temperature: 0.0            # greedy for reproducibility
+  num_workers: 4
+  # Which real VLMs the shuffled-image validity baseline runs against by
+  # default. Previously hardcoded to qwen25_vl only ("fastest"), which
+  # meant the model the paper's headline claims rest on (MedGemma) was
+  # never actually tested for whether it uses the image at all. Default
+  # is now all three vision-capable models; override with --model on the
+  # CLI for a faster single-model run during development.
+  shuffled_image_baseline_models: ["qwen25_vl", "medgemma", "llava_med"]

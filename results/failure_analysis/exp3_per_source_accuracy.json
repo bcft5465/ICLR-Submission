@@ -1,0 +1,235 @@
+{
+  "benchmark_source_distribution": {
+    "openi": 3666,
+    "mimiccxr": 4500
+  },
+  "per_source_metrics": [
+    {
+      "model": "medgemma",
+      "source": "openi",
+      "n": 3794,
+      "accuracy": 0.669,
+      "balanced_acc": 0.6681,
+      "f1": 0.6523,
+      "mcc": 0.3364,
+      "auroc": 0.6881
+    },
+    {
+      "model": "medgemma",
+      "source": "mimiccxr",
+      "n": 4500,
+      "accuracy": 0.7231,
+      "balanced_acc": 0.7096,
+      "f1": 0.6376,
+      "mcc": 0.4559,
+      "auroc": 0.7089
+    },
+    {
+      "model": "qwen25_vl",
+      "source": "openi",
+      "n": 3794,
+      "accuracy": 0.4826,
+      "balanced_acc": 0.5032,
+      "f1": 0.649,
+      "mcc": 0.0456,
+      "auroc": 0.5156
+    },
+    {
+      "model": "qwen25_vl",
+      "source": "mimiccxr",
+      "n": 4500,
+      "accuracy": 0.4653,
+      "balanced_acc": 0.5019,
+      "f1": 0.6341,
+      "mcc": 0.0416,
+      "auroc": 0.5092
+    },
+    {
+      "model": "chexagent",
+      "source": "openi",
+      "n": 3794,
+      "accuracy": 0.4871,
+      "balanced_acc": 0.5073,
+      "f1": 0.6495,
+      "mcc": 0.0582,
+      "auroc": 0.5213
+    },
+    {
+      "model": "chexagent",
+      "source": "mimiccxr",
+      "n": 4500,
+      "accuracy": 0.4693,
+      "balanced_acc": 0.5034,
+      "f1": 0.6283,
+      "mcc": 0.0182,
+      "auroc": 0.4758
+    },
+    {
+      "model": "llava15",
+      "source": "openi",
+      "n": 3794,
+      "accuracy": 0.4792,
+      "balanced_acc": 0.5,
+      "f1": 0.6479,
+      "mcc": 0.0,
+      "auroc": 0.5555
+    },
+    {
+      "model": "llava15",
+      "source": "mimiccxr",
+      "n": 4500,
+      "accuracy": 0.4633,
+      "balanced_acc": 0.5,
+      "f1": 0.6333,
+      "mcc": 0.0,
+      "auroc": 0.5506
+    },
+    {
+      "model": "phi3_vision",
+      "source": "openi",
+      "n": 3794,
+      "accuracy": 0.4794,
+      "balanced_acc": 0.5003,
+      "f1": 0.648,
+      "mcc": 0.0156,
+      "auroc": 0.5178
+    },
+    {
+      "model": "phi3_vision",
+      "source": "mimiccxr",
+      "n": 4500,
+      "accuracy": 0.4633,
+      "balanced_acc": 0.5,
+      "f1": 0.6333,
+      "mcc": 0.0,
+      "auroc": 0.4917
+    },
+    {
+      "model": "biovil_t",
+      "source": "openi",
+      "n": 3759,
+      "accuracy": 0.5204,
+      "balanced_acc": 0.5,
+      "f1": 0.0,
+      "mcc": 0.0,
+      "auroc": 0.4778
+    },
+    {
+      "model": "biovil_t",
+      "source": "mimiccxr",
+      "n": 4500,
+      "accuracy": 0.5367,
+      "balanced_acc": 0.5,
+      "f1": 0.0,
+      "mcc": 0.0,
+      "auroc": 0.4985
+    },
+    {
+      "model": "biomedclip",
+      "source": "openi",
+      "n": 3794,
+      "accuracy": 0.52,
+      "balanced_acc": 0.4999,
+      "f1": 0.0319,
+      "mcc": -0.0008,
+      "auroc": 0.5729
+    },
+    {
+      "model": "biomedclip",
+      "source": "mimiccxr",
+      "n": 4500,
+      "accuracy": 0.508,
+      "balanced_acc": 0.4742,
+      "f1": 0.0255,
+      "mcc": -0.1287,
+      "auroc": 0.5074
+    },
+    {
+      "model": "blip2",
+      "source": "openi",
+      "n": 3794,
+      "accuracy": 0.5203,
+      "balanced_acc": 0.5187,
+      "f1": 0.4893,
+      "mcc": 0.0374,
+      "auroc": 0.5129
+    },
+    {
+      "model": "blip2",
+      "source": "mimiccxr",
+      "n": 4500,
+      "accuracy": 0.4822,
+      "balanced_acc": 0.4636,
+      "f1": 0.2732,
+      "mcc": -0.0839,
+      "auroc": 0.4758
+    }
+  ],
+  "generalization_gap_ranked": [
+    {
+      "model": "blip2",
+      "balanced_acc_gap_across_sources": 0.0551,
+      "per_source": {
+        "openi": 0.5187,
+        "mimiccxr": 0.4636
+      }
+    },
+    {
+      "model": "medgemma",
+      "balanced_acc_gap_across_sources": 0.0415,
+      "per_source": {
+        "openi": 0.6681,
+        "mimiccxr": 0.7096
+      }
+    },
+    {
+      "model": "biomedclip",
+      "balanced_acc_gap_across_sources": 0.0257,
+      "per_source": {
+        "openi": 0.4999,
+        "mimiccxr": 0.4742
+      }
+    },
+    {
+      "model": "chexagent",
+      "balanced_acc_gap_across_sources": 0.0039,
+      "per_source": {
+        "openi": 0.5073,
+        "mimiccxr": 0.5034
+      }
+    },
+    {
+      "model": "qwen25_vl",
+      "balanced_acc_gap_across_sources": 0.0013,
+      "per_source": {
+        "openi": 0.5032,
+        "mimiccxr": 0.5019
+      }
+    },
+    {
+      "model": "phi3_vision",
+      "balanced_acc_gap_across_sources": 0.0003,
+      "per_source": {
+        "openi": 0.5003,
+        "mimiccxr": 0.5
+      }
+    },
+    {
+      "model": "biovil_t",
+      "balanced_acc_gap_across_sources": 0.0,
+      "per_source": {
+        "openi": 0.5,
+        "mimiccxr": 0.5
+      }
+    },
+    {
+      "model": "llava15",
+      "balanced_acc_gap_across_sources": 0.0,
+      "per_source": {
+        "openi": 0.5,
+        "mimiccxr": 0.5
+      }
+    }
+  ],
+  "interpretation": "A model with a large balanced_acc_gap_across_sources performs very differently on OpenI vs. MIMIC-CXR studies, indicating its apparent hallucination-detection ability does not transfer across imaging sites/institutions \u2014 directly relevant to any clinical deployment claim."
+}

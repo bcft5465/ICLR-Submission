@@ -1,0 +1,24 @@
+{
+  "text_basis": "9a/9b computed on SWAP_MAP-stripped text (matches Exp 8's 'swap_vocabulary_excluded' condition, AUROC=0.6893); 9c additionally strips a broader radiology vocabulary list on top of SWAP_MAP.",
+  "9a_length_confound": {
+    "mean_word_count_hallucinated": 39.218,
+    "mean_word_count_faithful": 36.369,
+    "length_only_classifier_auroc": 0.5716
+  },
+  "9b_broader_vocab_confound": {
+    "mean_broader_vocab_count_hallucinated": 3.0411,
+    "mean_broader_vocab_count_faithful": 2.7985,
+    "broader_vocab_count_only_classifier_auroc": 0.5604
+  },
+  "9a_9b_combined_classifier_auroc": 0.5698,
+  "9c_full_classifier_with_swap_and_broader_vocab_excluded": {
+    "n_vocab_excluded": 99,
+    "accuracy": 0.6357,
+    "auroc": 0.6954
+  },
+  "exp8_reference_swap_only_excluded_auroc": 0.6893,
+  "additional_auroc_drop_from_broader_vocab_exclusion": -0.0061,
+  "near_chance_threshold_used": 0.6,
+  "length_or_broader_vocab_explains_residual": false,
+  "interpretation": "Even excluding a BROADER radiology vocabulary on top of SWAP_MAP, AUROC remains well above chance. Combined with the length-only and broader-vocab-count-only classifiers' own AUROCs (9a, 9b) as a diagnostic reference, this points toward a STRUCTURAL confound (report length/complexity itself, independent of specific vocabulary) as the more likely explanation for the residual leak, rather than a vocabulary-breadth issue alone. This is a harder problem: it means reports eligible for injection are systematically different in KIND (not just word choice) from reports that are not eligible, which a paraphrase-based fix targeting individual injected claims will NOT resolve -- the sampling/selection process for WHICH reports receive injections would need to be rebalanced (e.g. matching length/complexity between the clean and hallucinated pools) rather than just rewriting the injected text."
+}

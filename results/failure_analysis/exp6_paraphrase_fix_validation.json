@@ -1,0 +1,28 @@
+{
+  "before_repair": {
+    "accuracy": 0.8408,
+    "balanced_accuracy": 0.8363,
+    "f1": 0.8181,
+    "mcc": 0.6829,
+    "auroc": 0.9183
+  },
+  "after_repair": {
+    "accuracy": 0.8369,
+    "balanced_accuracy": 0.8321,
+    "f1": 0.8128,
+    "auroc": 0.9162
+  },
+  "auroc_reduction": 0.0021,
+  "n_rule_repaired": 1356,
+  "n_llm_repaired": 0,
+  "n_llm_failed": 0,
+  "rule_application_counts": {
+    "collocation:\\bparenchymal effusion\\b->parenchymal opacity": 425,
+    "number_agreement:livers->liver": 644,
+    "collocation:\\bdiaphragml\\b->diaphragm": 175,
+    "collocation:\\bno parenchymal\\b->no significant parenchymal": 216,
+    "collocation:\\bchronic cardiopulmonary\\b->longstanding cardiopulmonary": 72
+  },
+  "repair_mode": "rule_based",
+  "interpretation": "Compares the Exp 5 text-only classifier's AUROC before vs. after repairing the specific grammatical/collocation artifacts Exp 5's own feature analysis surfaced. A meaningful auroc_reduction here is direct evidence the leak was fixable at the injection-generation stage, not an inherent property of the task. If AUROC after repair is still well above chance (>0.6), a further, stronger fix (full LLM paraphrase of injected claims, not just grammar repair -- see --exp6_use_llm) is warranted before this benchmark's cross-model comparisons can be trusted at face value."
+}

@@ -1,0 +1,69 @@
+{
+  "weights_used": {
+    "discrimination": 0.5,
+    "ece": 0.3,
+    "type_accuracy": 0.2
+  },
+  "mcc_floors_tested": [
+    0.02,
+    0.05,
+    0.1,
+    0.15
+  ],
+  "per_floor_results": {
+    "0.02": {
+      "top_vlm_by_gated_score": "chexagent",
+      "top_vlm_gated_score": 0.6991,
+      "medgemma_rank_among_vlms": 3,
+      "chexagent_rank_among_vlms": 1,
+      "chexagent_mcc": 0.033,
+      "chexagent_discrimination_after_gate": 0.5741,
+      "chexagent_gated_below_floor": false
+    },
+    "0.05": {
+      "top_vlm_by_gated_score": "medgemma",
+      "top_vlm_gated_score": 0.6757,
+      "medgemma_rank_among_vlms": 1,
+      "chexagent_rank_among_vlms": 2,
+      "chexagent_mcc": 0.033,
+      "chexagent_discrimination_after_gate": 0.0,
+      "chexagent_gated_below_floor": true
+    },
+    "0.1": {
+      "top_vlm_by_gated_score": "medgemma",
+      "top_vlm_gated_score": 0.6757,
+      "medgemma_rank_among_vlms": 1,
+      "chexagent_rank_among_vlms": 2,
+      "chexagent_mcc": 0.033,
+      "chexagent_discrimination_after_gate": 0.0,
+      "chexagent_gated_below_floor": true
+    },
+    "0.15": {
+      "top_vlm_by_gated_score": "medgemma",
+      "top_vlm_gated_score": 0.6757,
+      "medgemma_rank_among_vlms": 1,
+      "chexagent_rank_among_vlms": 2,
+      "chexagent_mcc": 0.033,
+      "chexagent_discrimination_after_gate": 0.0,
+      "chexagent_gated_below_floor": true
+    }
+  },
+  "medgemma_rank_across_floors": [
+    3,
+    1,
+    1,
+    1
+  ],
+  "inactive_floors_too_low_to_gate_chexagent": [
+    0.02
+  ],
+  "active_floors_that_gate_chexagent_out": [
+    0.05,
+    0.1,
+    0.15
+  ],
+  "min_floor_that_activates_fix": 0.05,
+  "medgemma_rank_stable_among_active_floors": true,
+  "original_top_vlm_by_halluscore": "chexagent",
+  "interpretation": "Under the ORIGINAL (ungated) formula, chexagent topped the real-VLM leaderboard despite MCC\u22480.03 (near-zero signal) -- this is the exact blind spot Exp 1's synthetic sweep predicted. 'chexagent_gated_below_floor'=True at a given floor means that floor successfully zeroes out chexagent's Discrimination term, removing it from contention for top VLM. Floors BELOW chexagent's actual MCC (~0.033) are trivially inactive (listed in inactive_floors_too_low_to_gate_chexagent) and are NOT part of the stability claim -- a too-low floor being a no-op is expected, not evidence against the fix. The real question is whether medgemma's rank is stable ACROSS THE FLOORS THAT ARE HIGH ENOUGH TO ACTUALLY GATE chexagent out (medgemma_rank_stable_among_active_floors); if True, the fix works and is not sensitive to the exact value chosen once it clears the minimum threshold needed to matter (min_floor_that_activates_fix)."
+}

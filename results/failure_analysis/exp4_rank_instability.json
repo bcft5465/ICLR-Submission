@@ -1,0 +1,37 @@
+{
+  "component_driver_analysis": [
+    {
+      "component": "one_minus_ece",
+      "rho_vs_hallu_score": -0.1099,
+      "rho_vs_hs_equal": -0.3626,
+      "rho_vs_hs_calib_heavy": 0.1264,
+      "rho_vs_hs_type_heavy": -0.3736,
+      "rho_range_across_schemes": 0.5
+    },
+    {
+      "component": "type_acc_macro",
+      "rho_vs_hallu_score": 0.6722,
+      "rho_vs_hs_equal": 0.8981,
+      "rho_vs_hs_calib_heavy": 0.5455,
+      "rho_vs_hs_type_heavy": 0.8926,
+      "rho_range_across_schemes": 0.3526
+    },
+    {
+      "component": "discrimination",
+      "rho_vs_hallu_score": 0.8666,
+      "rho_vs_hs_equal": 0.718,
+      "rho_vs_hs_calib_heavy": 0.7235,
+      "rho_vs_hs_type_heavy": 0.751,
+      "rho_range_across_schemes": 0.1486
+    }
+  ],
+  "most_unstable_component": "one_minus_ece",
+  "biggest_rank_movers_main_vs_calib_heavy": {
+    "text_only_baseline": 4,
+    "blip2": 3,
+    "phi3_vision": 1,
+    "llava15": 1,
+    "qwen25_vl": 1
+  },
+  "interpretation": "'one_minus_ece' shows the widest range of rank-correlation with the final HalluScore across the 5 tested weight schemes, making it the primary driver of rank instability. Models with the largest rank swaps between the main (0.5/0.3/0.2) and calibration-heavy (0.3/0.5/0.2) schemes are listed above -- these are the models whose leaderboard position is most sensitive to a subjective weighting choice, which is itself evidence AGAINST reporting a single scalar HalluScore as the paper's headline ranking mechanism."
+}

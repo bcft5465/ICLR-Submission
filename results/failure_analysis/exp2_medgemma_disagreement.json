@@ -1,0 +1,37 @@
+{
+  "n_common_samples": 8166,
+  "cluster_models": [
+    "qwen25_vl",
+    "llava15",
+    "phi3_vision",
+    "chexagent"
+  ],
+  "overall_medgemma_cluster_agreement": 0.3766,
+  "report_length_shortcut_check": {
+    "agree_mean_words": 48.55642276422764,
+    "disagree_mean_words": 42.21921037124337,
+    "interpretation": "If disagree_mean_words differs substantially from agree_mean_words, report length may partly explain WHERE medgemma and the cluster diverge (not necessarily WHY either is right)."
+  },
+  "length_vs_cluster_verdict": {
+    "spearman_rho": null,
+    "p_value": null,
+    "interpretation": "A significant positive rho here would support the 'longer report -> cluster more likely to call it hallucinated' surface-shortcut hypothesis, independent of ground truth."
+  },
+  "ground_truth_tracking_check": {
+    "medgemma_pred_hallucinated_rate": {
+      "gt_hallucinated": 0.5806705081194342,
+      "gt_faithful": 0.19756209751609935
+    },
+    "cluster_majority_pred_hallucinated_rate": {
+      "gt_hallucinated": 1.0,
+      "gt_faithful": 0.999770009199632
+    }
+  },
+  "interpretation_gt_tracking": "Compare the GAP between gt_hallucinated_rate and gt_faithful_rate for medgemma vs. the cluster. A LARGER gap means that model's 'hallucinated' calls track ground truth more; a small gap (rates similar regardless of GT) is consistent with the cluster following a fixed bias/shortcut rather than genuine detection.",
+  "disagreement_rate_by_hallu_type": {
+    "attribute": 0.3627,
+    "object": 0.2069,
+    "relational": 0.7086,
+    "NaN": 0.8027
+  }
+}
