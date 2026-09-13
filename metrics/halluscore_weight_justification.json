@@ -1,0 +1,58 @@
+{
+  "vs_individual_metrics": {
+    "accuracy": {
+      "spearman_rho": -0.1154,
+      "p_value": 0.7074
+    },
+    "balanced_acc": {
+      "spearman_rho": 0.7182,
+      "p_value": 0.0057
+    },
+    "f1": {
+      "spearman_rho": 0.8044,
+      "p_value": 0.0009
+    },
+    "mcc": {
+      "spearman_rho": 0.7735,
+      "p_value": 0.0019
+    },
+    "auroc": {
+      "spearman_rho": 0.4231,
+      "p_value": 0.1497
+    },
+    "ece": {
+      "spearman_rho": -0.1099,
+      "p_value": 0.7208
+    },
+    "discrimination": {
+      "spearman_rho": 0.8666,
+      "p_value": 0.0001
+    }
+  },
+  "vs_other_weight_schemes": {
+    "hallu_score_vs_hs_equal": {
+      "spearman_rho": 0.8626,
+      "p_value": 0.0001
+    },
+    "hallu_score_vs_hs_calib_heavy": {
+      "spearman_rho": 0.9121,
+      "p_value": 0.0
+    },
+    "hallu_score_vs_hs_type_heavy": {
+      "spearman_rho": 0.8791,
+      "p_value": 0.0001
+    },
+    "hs_equal_vs_hs_calib_heavy": {
+      "spearman_rho": 0.7363,
+      "p_value": 0.0041
+    },
+    "hs_equal_vs_hs_type_heavy": {
+      "spearman_rho": 0.9945,
+      "p_value": 0.0
+    },
+    "hs_calib_heavy_vs_hs_type_heavy": {
+      "spearman_rho": 0.7253,
+      "p_value": 0.005
+    }
+  }
+}

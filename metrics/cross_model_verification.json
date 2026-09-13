@@ -1,0 +1,170 @@
+{
+  "qwen25_vl_vs_medgemma": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.3795,
+    "n_both_high_confidence": 3572,
+    "high_confidence_agreement_rate": 0.2388
+  },
+  "qwen25_vl_vs_llava15": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.9967,
+    "n_both_high_confidence": 5129,
+    "high_confidence_agreement_rate": 0.9947
+  },
+  "qwen25_vl_vs_phi3_vision": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.9966,
+    "n_both_high_confidence": 5129,
+    "high_confidence_agreement_rate": 0.9947
+  },
+  "qwen25_vl_vs_chexagent": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.97,
+    "n_both_high_confidence": 2037,
+    "high_confidence_agreement_rate": 0.9917
+  },
+  "qwen25_vl_vs_biovil_t": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.0033,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "qwen25_vl_vs_biomedclip": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.0329,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "qwen25_vl_vs_blip2": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.3434,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "medgemma_vs_llava15": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.3767,
+    "n_both_high_confidence": 6043,
+    "high_confidence_agreement_rate": 0.1577
+  },
+  "medgemma_vs_phi3_vision": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.3768,
+    "n_both_high_confidence": 6041,
+    "high_confidence_agreement_rate": 0.1579
+  },
+  "medgemma_vs_chexagent": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.388,
+    "n_both_high_confidence": 2182,
+    "high_confidence_agreement_rate": 0.1829
+  },
+  "medgemma_vs_biovil_t": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.6233,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "medgemma_vs_biomedclip": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.6125,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "medgemma_vs_blip2": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.5647,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "llava15_vs_phi3_vision": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.9999,
+    "n_both_high_confidence": 8164,
+    "high_confidence_agreement_rate": 0.9999
+  },
+  "llava15_vs_chexagent": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.9731,
+    "n_both_high_confidence": 2894,
+    "high_confidence_agreement_rate": 0.9993
+  },
+  "llava15_vs_biovil_t": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.0,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "llava15_vs_biomedclip": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.0299,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "llava15_vs_blip2": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.3437,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "phi3_vision_vs_chexagent": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.9729,
+    "n_both_high_confidence": 2893,
+    "high_confidence_agreement_rate": 0.9993
+  },
+  "phi3_vision_vs_biovil_t": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.0001,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "phi3_vision_vs_biomedclip": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.03,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "phi3_vision_vs_blip2": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.3436,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "chexagent_vs_biovil_t": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.0269,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "chexagent_vs_biomedclip": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.0568,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "chexagent_vs_blip2": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.3614,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "biovil_t_vs_biomedclip": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.9701,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "biovil_t_vs_blip2": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.6563,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  },
+  "biomedclip_vs_blip2": {
+    "n_common_samples": 8166,
+    "raw_agreement_rate": 0.6724,
+    "n_both_high_confidence": 0,
+    "high_confidence_agreement_rate": null
+  }
+}

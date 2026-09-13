@@ -1,0 +1,14 @@
+model,model_category,hallu_score,hs_equal,hs_calib_heavy,hs_type_heavy
+qwen25_vl,vlm,0.683,0.7417,0.6969,0.7603
+medgemma,vlm,0.6758,0.6657,0.6917,0.6489
+llava15,vlm,0.6654,0.725,0.6739,0.7479
+phi3_vision,vlm,0.6602,0.7186,0.6637,0.7447
+chexagent,vlm,0.6991,0.7582,0.7285,0.7655
+biovil_t,vlm,0.2502,0.2777,0.417,0.1668
+biomedclip,vlm,0.3553,0.3707,0.5293,0.2485
+blip2,vlm,0.5733,0.5773,0.6785,0.5007
+constant_faithful,baseline,0.1588,0.1763,0.2647,0.1059
+random,baseline,0.5765,0.5864,0.6281,0.5528
+text_only_baseline,baseline,0.6778,0.7035,0.7441,0.6667
+shuffled_image_baseline_qwen25_vl,baseline,0.6796,0.739,0.6939,0.7576
+shuffled_image_baseline_medgemma,baseline,0.6895,0.6878,0.7107,0.6711

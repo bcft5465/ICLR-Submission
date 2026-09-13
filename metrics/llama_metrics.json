@@ -1,0 +1,78 @@
+{
+  "n_total": 500,
+  "n_scored": 490,
+  "n_unknown": 10,
+  "model_category": "vlm",
+  "accuracy": 0.7102,
+  "balanced_acc": 0.497,
+  "precision": 0.2308,
+  "recall": 0.0222,
+  "specificity": 0.9718,
+  "f1": 0.0405,
+  "auroc": 0.3673,
+  "auprc": 0.2327,
+  "ece": 0.681816,
+  "ece_calibrated": 0.405521,
+  "temperature_T": 10.0,
+  "auroc_calibrated": 0.3673,
+  "faithfulness": 0.9718,
+  "hallu_recall": 0.0222,
+  "type_accuracy": {
+    "object": {
+      "acc": 0.0238,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0595,
+      "n": 84
+    },
+    "attribute": {
+      "acc": 0.04,
+      "ci_lo": 0.0,
+      "ci_hi": 0.12,
+      "n": 25
+    },
+    "relational": {
+      "acc": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0,
+      "n": 32
+    },
+    "none": {
+      "acc": 0.9721,
+      "ci_lo": 0.9554,
+      "ci_hi": 0.9889,
+      "n": 359
+    },
+    "macro_avg": 0.0213
+  },
+  "hallu_score": 0.5856,
+  "hallu_score_ablation": {
+    "main": 0.5856,
+    "equal": 0.4367,
+    "calib_heavy": 0.4549,
+    "type_heavy": 0.4609,
+    "faith_only": 0.9718
+  },
+  "bootstrap_ci": {
+    "auroc": [
+      0.3162,
+      0.4176
+    ],
+    "f1": [
+      0.0,
+      0.0936
+    ],
+    "acc": [
+      0.6694,
+      0.749
+    ],
+    "hallu_score": [
+      0.5699,
+      0.5998
+    ]
+  },
+  "TP": 3,
+  "FP": 10,
+  "TN": 345,
+  "FN": 132,
+  "model": "llama"
+}

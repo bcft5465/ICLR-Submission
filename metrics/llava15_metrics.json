@@ -1,0 +1,88 @@
+{
+  "n_total": 8294,
+  "n_scored": 8294,
+  "n_unknown": 0,
+  "n_parse_ok": 8294,
+  "parse_rate": 1.0,
+  "accuracy": 0.4706,
+  "balanced_acc": 0.5,
+  "precision": 0.4706,
+  "recall": 1.0,
+  "specificity": 0.0,
+  "f1": 0.64,
+  "mcc": 0.0,
+  "auroc": 0.5525,
+  "auprc": 0.5035,
+  "ece": 0.391635,
+  "discrimination": 0.5657,
+  "type_accuracy": {
+    "object": {
+      "acc": 1.0,
+      "ci_lo": 1.0,
+      "ci_hi": 1.0,
+      "n_total": 1325,
+      "n_scored": 1325,
+      "n_parse_failed": 0
+    },
+    "attribute": {
+      "acc": 1.0,
+      "ci_lo": 1.0,
+      "ci_hi": 1.0,
+      "n_total": 1341,
+      "n_scored": 1341,
+      "n_parse_failed": 0
+    },
+    "relational": {
+      "acc": 1.0,
+      "ci_lo": 1.0,
+      "ci_hi": 1.0,
+      "n_total": 1237,
+      "n_scored": 1237,
+      "n_parse_failed": 0
+    },
+    "macro_avg": 1.0,
+    "_any_parse_failures": false
+  },
+  "per_source_accuracy": {
+    "unknown": {
+      "accuracy": 0.4706,
+      "n": 8294
+    }
+  },
+  "hallu_score": 0.6654,
+  "hallu_score_ablation": {
+    "main": 0.6654,
+    "equal": 0.725,
+    "calib_heavy": 0.6739,
+    "type_heavy": 0.7479,
+    "disc_only": 0.5657
+  },
+  "bootstrap_ci": {
+    "auroc": [
+      0.5416,
+      0.5639
+    ],
+    "f1": [
+      0.6309,
+      0.6501
+    ],
+    "mcc": [
+      0.0,
+      0.0
+    ],
+    "acc": [
+      0.4608,
+      0.4816
+    ],
+    "hallu_score": [
+      0.6619,
+      0.669
+    ]
+  },
+  "TP": 3903,
+  "FP": 4391,
+  "TN": 0,
+  "FN": 0,
+  "model": "llava15",
+  "model_category": "vlm"
+}
